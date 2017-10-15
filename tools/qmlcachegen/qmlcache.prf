@@ -44,7 +44,7 @@ defineReplace(qmlCacheOutputFileName) {
 }
 
 qmlcacheinst.base = $$QMLCACHE_DESTDIR
-qmlcacheinst.path = $$[QT_INSTALL_QML]/$$TARGETPATH
+qmlcacheinst.path = $$NIX_OUTPUT_QML/$$TARGETPATH
 qmlcacheinst.CONFIG = no_check_exist
 
 qmlcachegen.input = CACHEGEN_FILES
