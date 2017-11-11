@@ -34,6 +34,7 @@
 
 #include <QtTest/QtTest>
 
+#include <private/qqmldata_p.h>
 #include <qjsengine.h>
 #include <qjsvalueiterator.h>
 #include <qgraphicsitem.h>
@@ -78,6 +79,7 @@ private slots:
     void newQObject();
     void newQObject_ownership();
     void newQObject_deletedEngine();
+    void newQObjectPropertyCache();
     void exceptionInSlot();
     void globalObjectProperties();
     void globalObjectEquals();
@@ -143,6 +145,7 @@ private slots:
 
     void arrayPop_QTBUG_35979();
     void array_unshift_QTBUG_52065();
+    void array_join_QTBUG_53672();
 
     void regexpLastMatch();
     void indexedAccesses();
@@ -194,6 +197,9 @@ private slots:
     void v4FunctionWithoutQML();
 
     void withNoContext();
+    void holeInPropertyData();
+
+    void malformedExpression();
 
 signals:
     void testSignal();
@@ -717,6 +723,19 @@ void tst_QJSEngine::newQObject_deletedEngine()
         engine.globalObject().setProperty("obj", object);
     }
     QTRY_VERIFY(spy.count());
+}
+
+void tst_QJSEngine::newQObjectPropertyCache()
+{
+    QScopedPointer<QObject> obj(new QObject);
+    QQmlEngine::setObjectOwnership(obj.data(), QQmlEngine::CppOwnership);
+
+    {
+        QJSEngine engine;
+        engine.newQObject(obj.data());
+        QVERIFY(QQmlData::get(obj.data())->propertyCache);
+    }
+    QVERIFY(!QQmlData::get(obj.data())->propertyCache);
 }
 
 void tst_QJSEngine::exceptionInSlot()
@@ -3016,6 +3035,14 @@ void tst_QJSEngine::array_unshift_QTBUG_52065()
         QCOMPARE(result.property(i).toInt(), i);
 }
 
+void tst_QJSEngine::array_join_QTBUG_53672()
+{
+    QJSEngine eng;
+    QJSValue result = eng.evaluate("Array.prototype.join.call(0)");
+    QVERIFY(result.isString());
+    QCOMPARE(result.toString(), QString(""));
+}
+
 void tst_QJSEngine::regexpLastMatch()
 {
     QJSEngine eng;
@@ -3847,6 +3874,25 @@ void tst_QJSEngine::withNoContext()
     // Don't crash (QTBUG-53794)
     QJSEngine engine;
     engine.evaluate("with (noContext) true");
+}
+
+void tst_QJSEngine::holeInPropertyData()
+{
+    QJSEngine engine;
+    QJSValue ok = engine.evaluate(
+                "var o = {};\n"
+                "o.bar = 0xcccccccc;\n"
+                "o.foo = 0x55555555;\n"
+                "Object.defineProperty(o, 'bar', { get: function() { return 0xffffffff }});\n"
+                "o.bar === 0xffffffff && o.foo === 0x55555555;");
+    QVERIFY(ok.isBool());
+    QVERIFY(ok.toBool());
+}
+
+void tst_QJSEngine::malformedExpression()
+{
+    QJSEngine engine;
+    engine.evaluate("5%55555&&5555555\n7-0");
 }
 
 QTEST_MAIN(tst_QJSEngine)

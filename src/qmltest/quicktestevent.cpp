@@ -118,6 +118,8 @@ namespace QtQuickTest
 {
     enum MouseAction { MousePress, MouseRelease, MouseClick, MouseDoubleClick, MouseMove, MouseDoubleClickSequence };
 
+    int lastMouseTimestamp = 0;
+
     static void mouseEvent(MouseAction action, QWindow *window,
                            QObject *item, Qt::MouseButton button,
                            Qt::KeyboardModifiers stateKey, QPointF _pos, int delay=-1)
@@ -127,8 +129,10 @@ namespace QtQuickTest
 
         if (delay == -1 || delay < QTest::defaultMouseDelay())
             delay = QTest::defaultMouseDelay();
-        if (delay > 0)
+        if (delay > 0) {
             QTest::qWait(delay);
+            lastMouseTimestamp += delay;
+        }
 
         if (action == MouseClick) {
             mouseEvent(MousePress, window, item, button, stateKey, _pos);
@@ -159,16 +163,21 @@ namespace QtQuickTest
         {
             case MousePress:
                 me = QMouseEvent(QEvent::MouseButtonPress, pos, window->mapToGlobal(pos), button, button, stateKey);
+                me.setTimestamp(++lastMouseTimestamp);
                 break;
             case MouseRelease:
                 me = QMouseEvent(QEvent::MouseButtonRelease, pos, window->mapToGlobal(pos), button, 0, stateKey);
+                me.setTimestamp(++lastMouseTimestamp);
+                lastMouseTimestamp += 500; // avoid double clicks being generated
                 break;
             case MouseDoubleClick:
                 me = QMouseEvent(QEvent::MouseButtonDblClick, pos, window->mapToGlobal(pos), button, button, stateKey);
+                me.setTimestamp(++lastMouseTimestamp);
                 break;
             case MouseMove:
                 // with move event the button is NoButton, but 'buttons' holds the currently pressed buttons
                 me = QMouseEvent(QEvent::MouseMove, pos, window->mapToGlobal(pos), Qt::NoButton, button, stateKey);
+                me.setTimestamp(++lastMouseTimestamp);
                 break;
             default:
                 QTEST_ASSERT(false);

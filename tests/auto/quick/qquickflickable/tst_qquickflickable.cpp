@@ -74,6 +74,7 @@ private slots:
     void returnToBounds();
     void returnToBounds_data();
     void wheel();
+    void trackpad();
     void movingAndFlicking();
     void movingAndFlicking_data();
     void movingAndDragging();
@@ -724,10 +725,65 @@ void tst_qquickflickable::wheel()
 
     QQuickFlickable *flick = window->rootObject()->findChild<QQuickFlickable*>("flick");
     QVERIFY(flick != 0);
+    QQuickFlickablePrivate *fp = QQuickFlickablePrivate::get(flick);
+    QSignalSpy moveEndSpy(flick, SIGNAL(movementEnded()));
 
+    // test a vertical flick
     {
         QPoint pos(200, 200);
         QWheelEvent event(pos, window->mapToGlobal(pos), QPoint(), QPoint(0,-120), -120, Qt::Vertical, Qt::NoButton, Qt::NoModifier);
+        event.setAccepted(false);
+        QGuiApplication::sendEvent(window.data(), &event);
+    }
+
+    QTRY_VERIFY(flick->contentY() > 0);
+    QCOMPARE(flick->contentX(), qreal(0));
+
+    QTRY_COMPARE(moveEndSpy.count(), 1);
+    QCOMPARE(fp->velocityTimeline.isActive(), false);
+    QCOMPARE(fp->timeline.isActive(), false);
+    QTest::qWait(50); // make sure that onContentYChanged won't sneak in again
+    QCOMPARE(flick->property("movementsAfterEnd").value<int>(), 0); // QTBUG-55886
+
+    // get ready to test horizontal flick
+    flick->setContentY(0); // which triggers movementEnded again
+    flick->setProperty("movementsAfterEnd", 0);
+    flick->setProperty("ended", false);
+    QCOMPARE(flick->contentY(), qreal(0));
+
+    // test a horizontal flick
+    {
+        QPoint pos(200, 200);
+        QWheelEvent event(pos, window->mapToGlobal(pos), QPoint(), QPoint(-120,0), -120, Qt::Horizontal, Qt::NoButton, Qt::NoModifier);
+
+        event.setAccepted(false);
+        QGuiApplication::sendEvent(window.data(), &event);
+    }
+
+    QTRY_VERIFY(flick->contentX() > 0);
+    QCOMPARE(flick->contentY(), qreal(0));
+    QTRY_COMPARE(moveEndSpy.count(), 2);
+    QCOMPARE(fp->velocityTimeline.isActive(), false);
+    QCOMPARE(fp->timeline.isActive(), false);
+    QTest::qWait(50); // make sure that onContentXChanged won't sneak in again
+    QCOMPARE(flick->property("movementsAfterEnd").value<int>(), 0); // QTBUG-55886
+}
+
+void tst_qquickflickable::trackpad()
+{
+    QScopedPointer<QQuickView> window(new QQuickView);
+    window->setSource(testFileUrl("wheel.qml"));
+    window->show();
+    QVERIFY(QTest::qWaitForWindowActive(window.data()));
+    QVERIFY(window->rootObject() != 0);
+
+    QQuickFlickable *flick = window->rootObject()->findChild<QQuickFlickable*>("flick");
+    QVERIFY(flick != 0);
+    QSignalSpy moveEndSpy(flick, SIGNAL(movementEnded()));
+    QPoint pos(200, 200);
+
+    {
+        QWheelEvent event(pos, window->mapToGlobal(pos), QPoint(0,-100), QPoint(0,-120), -120, Qt::Vertical, Qt::NoButton, Qt::NoModifier, Qt::ScrollBegin);
         event.setAccepted(false);
         QGuiApplication::sendEvent(window.data(), &event);
     }
@@ -739,15 +795,22 @@ void tst_qquickflickable::wheel()
     QCOMPARE(flick->contentY(), qreal(0));
 
     {
-        QPoint pos(200, 200);
-        QWheelEvent event(pos, window->mapToGlobal(pos), QPoint(), QPoint(-120,0), -120, Qt::Horizontal, Qt::NoButton, Qt::NoModifier);
-
+        QWheelEvent event(pos, window->mapToGlobal(pos), QPoint(-100,0), QPoint(-120,0), -120, Qt::Horizontal, Qt::NoButton, Qt::NoModifier, Qt::ScrollUpdate);
         event.setAccepted(false);
         QGuiApplication::sendEvent(window.data(), &event);
     }
 
     QTRY_VERIFY(flick->contentX() > 0);
     QCOMPARE(flick->contentY(), qreal(0));
+
+    {
+        QWheelEvent event(pos, window->mapToGlobal(pos), QPoint(0,0), QPoint(0,0), 0, Qt::Horizontal, Qt::NoButton, Qt::NoModifier, Qt::ScrollEnd);
+        event.setAccepted(false);
+        QGuiApplication::sendEvent(window.data(), &event);
+    }
+
+    QTRY_COMPARE(moveEndSpy.count(), 1); // QTBUG-55871
+    QCOMPARE(flick->property("movementsAfterEnd").value<int>(), 0); // QTBUG-55886
 }
 
 void tst_qquickflickable::movingAndFlicking_data()

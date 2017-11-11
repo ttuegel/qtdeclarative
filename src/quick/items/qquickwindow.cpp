@@ -1437,6 +1437,15 @@ bool QQuickWindow::event(QEvent *e)
         // return in order to avoid the QWindow::event below
         return d->deliverTouchCancelEvent(static_cast<QTouchEvent*>(e));
         break;
+    case QEvent::Enter: {
+        QEnterEvent *enter = static_cast<QEnterEvent*>(e);
+        bool accepted = enter->isAccepted();
+        bool delivered = d->deliverHoverEvent(d->contentItem, enter->windowPos(), d->lastMousePosition,
+            QGuiApplication::keyboardModifiers(), 0L, accepted);
+        enter->setAccepted(accepted);
+        return delivered;
+    }
+        break;
     case QEvent::Leave:
         d->clearHover();
         d->lastMousePosition = QPoint();
@@ -1818,6 +1827,7 @@ bool QQuickWindowPrivate::deliverWheelEvent(QQuickItem *item, QWheelEvent *event
     if (item->contains(p)) {
         QWheelEvent wheel(p, p, event->pixelDelta(), event->angleDelta(), event->delta(),
                           event->orientation(), event->buttons(), event->modifiers(), event->phase(), event->source());
+        wheel.setTimestamp(event->timestamp());
         wheel.accept();
         q->sendEvent(item, &wheel);
         if (wheel.isAccepted()) {
@@ -3057,10 +3067,12 @@ void QQuickWindowPrivate::updateDirtyNode(QQuickItem *item)
 
             if (itemPriv->paintNode && itemPriv->paintNode->parent() == 0) {
                 QSGNode *before = qquickitem_before_paintNode(itemPriv);
-                if (before)
+                if (before && before->parent()) {
+                    Q_ASSERT(before->parent() == itemPriv->childContainerNode());
                     itemPriv->childContainerNode()->insertChildNodeAfter(itemPriv->paintNode, before);
-                else
+                } else {
                     itemPriv->childContainerNode()->prependChildNode(itemPriv->paintNode);
+                }
             }
         } else if (itemPriv->paintNode) {
             delete itemPriv->paintNode;

@@ -57,6 +57,7 @@
 #endif
 
 #include <QtGui/private/qtextengine_p.h>
+#include <QtGui/private/qinputcontrol_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -2206,8 +2207,8 @@ QString QQuickTextInput::displayText() const
 
     If true, the user can use the mouse to select text in some
     platform-specific way. Note that for some platforms this may
-    not be an appropriate interaction (eg. may conflict with how
-    the text needs to behave inside a Flickable.
+    not be an appropriate interaction (it may conflict with how
+    the text needs to behave inside a \l Flickable, for example).
 */
 bool QQuickTextInput::selectByMouse() const
 {
@@ -2559,6 +2560,8 @@ void QQuickTextInputPrivate::init()
         option.setUseDesignMetrics(renderType != QQuickTextInput::NativeRendering);
         m_textLayout.setTextOption(option);
     }
+
+    m_inputControl = new QInputControl(QInputControl::LineEdit, q);
 }
 
 void QQuickTextInput::updateCursorRectangle(bool scroll)
@@ -4197,8 +4200,13 @@ void QQuickTextInputPrivate::processKeyEvent(QKeyEvent* event)
             if (!(q->inputMethodHints() & Qt::ImhMultiLine))
                 inputMethod->hide();
 
+            if (activeFocus) {
+                // If we lost focus after hiding the virtual keyboard, we've already emitted
+                // editingFinished from handleFocusEvent. Otherwise we emit it now.
+                emit q->editingFinished();
+            }
+
             emit q->accepted();
-            emit q->editingFinished();
         }
         event->ignore();
         return;
@@ -4376,9 +4384,8 @@ void QQuickTextInputPrivate::processKeyEvent(QKeyEvent* event)
     }
 
     if (unknown && !m_readOnly) {
-        QString t = event->text();
-        if (!t.isEmpty() && t.at(0).isPrint()) {
-            insert(t);
+        if (m_inputControl->isAcceptableInput(event)) {
+            insert(event->text());
             event->accept();
             return;
         }

@@ -163,7 +163,8 @@ ShaderManager::Shader *ShaderManager::prepareMaterial(QSGMaterial *material)
 
     qCDebug(QSG_LOG_TIME_COMPILATION, "shader compiled in %dms", (int) qsg_renderer_timer.elapsed());
 
-    Q_QUICK_SG_PROFILE_END(QQuickProfiler::SceneGraphContextFrame);
+    Q_QUICK_SG_PROFILE_END(QQuickProfiler::SceneGraphContextFrame,
+                           QQuickProfiler::SceneGraphContextMaterialCompile);
 
     rewrittenShaders[type] = shader;
     return shader;
@@ -194,7 +195,8 @@ ShaderManager::Shader *ShaderManager::prepareMaterialNoRewrite(QSGMaterial *mate
 
     qCDebug(QSG_LOG_TIME_COMPILATION, "shader compiled in %dms (no rewrite)", (int) qsg_renderer_timer.elapsed());
 
-    Q_QUICK_SG_PROFILE_END(QQuickProfiler::SceneGraphContextFrame);
+    Q_QUICK_SG_PROFILE_END(QQuickProfiler::SceneGraphContextFrame,
+                           QQuickProfiler::SceneGraphContextMaterialCompile);
     return shader;
 }
 
@@ -1948,25 +1950,27 @@ void Renderer::uploadBatch(Batch *b)
                 vd += g->sizeOfVertex();
             }
 
-            const quint16 *id =
+            if (!b->drawSets.isEmpty()) {
+                const quint16 *id =
 # ifdef QSG_SEPARATE_INDEX_BUFFER
                     (const quint16 *) (b->ibo.data);
 # else
                     (const quint16 *) (b->vbo.data + b->drawSets.at(0).indices);
 # endif
-            {
-                QDebug iDump = qDebug();
-                iDump << "  -- Index Data, count:" << b->indexCount;
-                for (int i=0; i<b->indexCount; ++i) {
-                    if ((i % 24) == 0)
-                       iDump << endl << "  --- ";
-                 iDump << id[i];
+                {
+                    QDebug iDump = qDebug();
+                    iDump << "  -- Index Data, count:" << b->indexCount;
+                    for (int i=0; i<b->indexCount; ++i) {
+                        if ((i % 24) == 0)
+                           iDump << endl << "  --- ";
+                        iDump << id[i];
+                    }
                 }
-            }
 
-            for (int i=0; i<b->drawSets.size(); ++i) {
-                const DrawSet &s = b->drawSets.at(i);
-                qDebug() << "  -- DrawSet: indexCount:" << s.indexCount << " vertices:" << s.vertices << " z:" << s.zorders << " indices:" << s.indices;
+                for (int i=0; i<b->drawSets.size(); ++i) {
+                    const DrawSet &s = b->drawSets.at(i);
+                    qDebug() << "  -- DrawSet: indexCount:" << s.indexCount << " vertices:" << s.vertices << " z:" << s.zorders << " indices:" << s.indices;
+                }
             }
         }
 #endif // QT_NO_DEBUG_OUTPUT
