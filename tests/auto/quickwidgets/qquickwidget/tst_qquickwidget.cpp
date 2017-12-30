@@ -55,11 +55,13 @@ private slots:
     void engine();
     void readback();
     void renderingSignals();
+    void grab();
     void grabBeforeShow();
     void reparentToNewWindow();
     void nullEngine();
     void keyEvents();
     void shortcuts();
+    void enterLeave();
 };
 
 
@@ -298,6 +300,15 @@ void tst_qquickwidget::renderingSignals()
     QTRY_VERIFY(afterRenderingSpy.size() > 0);
 }
 
+void tst_qquickwidget::grab()
+{
+    QQuickWidget view;
+    view.setSource(testFileUrl("rectangle.qml"));
+    QPixmap pixmap = view.grab();
+    QRgb pixel = pixmap.toImage().pixel(5, 5);
+    QCOMPARE(pixel, qRgb(255, 0, 0));
+}
+
 // QTBUG-49929, verify that Qt Designer grabbing the contents before drag
 // does not crash due to missing GL contexts or similar.
 void tst_qquickwidget::grabBeforeShow()
@@ -396,6 +407,30 @@ void tst_qquickwidget::shortcuts()
     QCoreApplication::sendEvent(&widget, &e);
 
     QTRY_VERIFY(filter.shortcutOk);
+}
+
+void tst_qquickwidget::enterLeave()
+{
+    QQuickWidget view;
+    view.setSource(testFileUrl("enterleave.qml"));
+
+    // Ensure it is not inside the window first
+    QCursor::setPos(QPoint(50, 50));
+    QTRY_VERIFY(QCursor::pos() == QPoint(50, 50));
+
+    view.move(100, 100);
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view, 5000));
+    QQuickItem *rootItem = view.rootObject();
+    QVERIFY(rootItem);
+
+    QTRY_VERIFY(!rootItem->property("hasMouse").toBool());
+    // Check the enter
+    QCursor::setPos(view.pos() + QPoint(50, 50));
+    QTRY_VERIFY(rootItem->property("hasMouse").toBool());
+    // Now check the leave
+    QCursor::setPos(view.pos() - QPoint(50, 50));
+    QTRY_VERIFY(!rootItem->property("hasMouse").toBool());
 }
 
 QTEST_MAIN(tst_qquickwidget)

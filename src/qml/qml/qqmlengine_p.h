@@ -204,11 +204,11 @@ public:
     template<typename T>
     inline void deleteInEngineThread(T *);
     template<typename T>
-    inline static void deleteInEngineThread(QQmlEngine *, T *);
+    inline static void deleteInEngineThread(QQmlEnginePrivate *, T *);
     QString offlineStorageDatabaseDirectory() const;
 
     // These methods may be called from the loader thread
-    inline QQmlPropertyCache *cache(QQmlType *, int);
+    inline QQmlPropertyCache *cache(const QQmlType &, int);
     using QJSEnginePrivate::cache;
 
     // These methods may be called from the loader thread
@@ -259,13 +259,8 @@ public:
     mutable QMutex networkAccessManagerMutex;
 
 private:
-    // Must be called locked
-    QQmlPropertyCache *createCache(QQmlType *, int);
-
     // These members must be protected by a QQmlEnginePrivate::Locker as they are required by
     // the threaded loader.  Only access them through their respective accessor methods.
-    QHash<QPair<QQmlType *, int>, QQmlPropertyCache *> typePropertyCache;
-    QHash<int, int> m_qmlLists;
     QHash<int, QV4::CompiledData::CompilationUnit *> m_compositeTypes;
     static bool s_designerMode;
 
@@ -364,10 +359,10 @@ Delete \a value in the \a engine thread.  If the calling thread is the engine
 thread, \a value will be deleted immediately.
 */
 template<typename T>
-void QQmlEnginePrivate::deleteInEngineThread(QQmlEngine *engine, T *value)
+void QQmlEnginePrivate::deleteInEngineThread(QQmlEnginePrivate *engine, T *value)
 {
     Q_ASSERT(engine);
-    QQmlEnginePrivate::get(engine)->deleteInEngineThread<T>(value);
+    engine->deleteInEngineThread<T>(value);
 }
 
 /*!
@@ -375,17 +370,15 @@ Returns a QQmlPropertyCache for \a type with \a minorVersion.
 
 The returned cache is not referenced, so if it is to be stored, call addref().
 */
-QQmlPropertyCache *QQmlEnginePrivate::cache(QQmlType *type, int minorVersion)
+QQmlPropertyCache *QQmlEnginePrivate::cache(const QQmlType &type, int minorVersion)
 {
-    Q_ASSERT(type);
+    Q_ASSERT(type.isValid());
 
-    if (minorVersion == -1 || !type->containsRevisionedAttributes())
-        return cache(type->metaObject());
+    if (minorVersion == -1 || !type.containsRevisionedAttributes())
+        return cache(type.metaObject());
 
     Locker locker(this);
-    QQmlPropertyCache *rv = typePropertyCache.value(qMakePair(type, minorVersion));
-    if (!rv) rv = createCache(type, minorVersion);
-    return rv;
+    return QQmlMetaType::propertyCache(type, minorVersion);
 }
 
 QV8Engine *QQmlEnginePrivate::getV8Engine(QQmlEngine *e)

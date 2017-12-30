@@ -1331,6 +1331,41 @@ private:
     QObject *obj;
 };
 
+class LazyDeferredSubObject : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(QObject *subObject READ subObject WRITE setSubObject NOTIFY subObjectChanged FINAL)
+    Q_CLASSINFO("DeferredPropertyNames", "subObject");
+public:
+    LazyDeferredSubObject()
+        : obj(0)
+    {}
+
+    QObject *subObject() const { if (!obj) qmlExecuteDeferred(const_cast<LazyDeferredSubObject *>(this)); return obj; }
+    void setSubObject(QObject *o) { if (obj == o) return; obj = o; emit subObjectChanged(); }
+
+signals:
+    void subObjectChanged();
+
+private:
+    QObject *obj;
+};
+
+class DeferredProperties : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(QObject *groupProperty MEMBER m_group)
+    Q_PROPERTY(QQmlListProperty<QObject> listProperty READ listProperty)
+    Q_CLASSINFO("DeferredPropertyNames", "groupProperty,listProperty")
+    Q_CLASSINFO("DefaultProperty", "listProperty")
+public:
+    QQmlListProperty<QObject> listProperty() { return QQmlListProperty<QObject>(this, m_list); }
+
+private:
+    QObject *m_group = 0;
+    QObjectList m_list;
+};
+
 void registerTypes();
 
 #endif // TESTTYPES_H

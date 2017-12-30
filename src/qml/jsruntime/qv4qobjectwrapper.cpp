@@ -249,7 +249,7 @@ ReturnedValue QObjectWrapper::getQmlProperty(QQmlContextData *qmlContext, String
                 if (r.isValid()) {
                     if (r.scriptIndex != -1) {
                         return QV4::Encode::undefined();
-                    } else if (r.type) {
+                    } else if (r.type.isValid()) {
                         return QmlTypeWrapper::create(v4, d()->object(),
                                                       r.type, Heap::QmlTypeWrapper::ExcludeEnums);
                     } else if (r.importNamespace) {
@@ -977,8 +977,12 @@ void QObjectWrapper::destroyObject(bool lastCall)
         QQmlData *ddata = QQmlData::get(h->object(), false);
         if (ddata) {
             if (!h->object()->parent() && !ddata->indestructible) {
-                if (ddata && ddata->ownContext && ddata->context)
-                    ddata->context->emitDestruction();
+                if (ddata && ddata->ownContext) {
+                    Q_ASSERT(ddata->ownContext == ddata->context);
+                    ddata->ownContext->emitDestruction();
+                    ddata->ownContext = 0;
+                    ddata->context = 0;
+                }
                 // This object is notionally destroyed now
                 ddata->isQueuedForDeletion = true;
                 if (lastCall)

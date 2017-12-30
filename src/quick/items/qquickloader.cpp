@@ -185,7 +185,7 @@ qreal QQuickLoaderPrivate::getImplicitHeight() const
     \l sourceComponent to \c undefined destroys the currently loaded object,
     freeing resources and leaving the Loader empty.
 
-    \section2 Loader sizing behavior
+    \section2 Loader Sizing Behavior
 
     If the source component is not an Item type, Loader does not
     apply any special sizing rules.  When used to load visual types,
@@ -217,7 +217,7 @@ qreal QQuickLoaderPrivate::getImplicitHeight() const
     \endtable
 
 
-    \section2 Receiving signals from loaded objects
+    \section2 Receiving Signals from Loaded Objects
 
     Any signals emitted from the loaded object can be received using the
     \l Connections type. For example, the following \c application.qml
@@ -238,7 +238,7 @@ qreal QQuickLoaderPrivate::getImplicitHeight() const
     its parent \l Item.
 
 
-    \section2 Focus and key events
+    \section2 Focus and Key Events
 
     Loader is a focus scope. Its \l {Item::}{focus} property must be set to
     \c true for any of its children to get the \e {active focus}. (See
@@ -266,10 +266,11 @@ qreal QQuickLoaderPrivate::getImplicitHeight() const
 
     Since \c {QtQuick 2.0}, Loader can also load non-visual components.
 
-    \section2 Using a Loader within a view delegate
+    \section2 Using a Loader within a View Delegate
 
     In some cases you may wish to use a Loader within a view delegate to improve delegate
     loading performance. This works well in most cases, but there is one important issue to
+    be aware of related to the \l{QtQml::Component#Creation Context}{creation context} of a Component.
 
     In the following example, the \c index context property inserted by the ListView into \c delegateComponent's
     context will be inaccessible to Text, as the Loader will use the creation context of \c myComponent as the parent
@@ -851,6 +852,7 @@ qreal QQuickLoader::progress() const
 \qmlproperty bool QtQuick::Loader::asynchronous
 
 This property holds whether the component will be instantiated asynchronously.
+By default it is \c false.
 
 When used in conjunction with the \l source property, loading and compilation
 will also be performed in a background thread.
@@ -914,9 +916,14 @@ void QQuickLoaderPrivate::_q_updateSize(bool loaderGeometryChanged)
     if (!item)
         return;
 
-    if (loaderGeometryChanged && q->widthValid())
+    const bool needToUpdateWidth = loaderGeometryChanged && q->widthValid();
+    const bool needToUpdateHeight = loaderGeometryChanged && q->heightValid();
+
+    if (needToUpdateWidth && needToUpdateHeight)
+        item->setSize(QSizeF(q->width(), q->height()));
+    else if (needToUpdateWidth)
         item->setWidth(q->width());
-    if (loaderGeometryChanged && q->heightValid())
+    else if (needToUpdateHeight)
         item->setHeight(q->height());
 
     if (updatingSize)

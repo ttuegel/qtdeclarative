@@ -823,12 +823,13 @@ void QQuickWindowPrivate::removeGrabber(QQuickItem *grabber, bool mouse, bool to
     if (Q_LIKELY(touch)) {
         const auto touchDevices = QQuickPointerDevice::touchDevices();
         for (auto device : touchDevices) {
-            auto pointerEvent = pointerEventInstance(device);
-            for (int i = 0; i < pointerEvent->pointCount(); ++i) {
-                if (pointerEvent->point(i)->grabber() == grabber) {
-                    pointerEvent->point(i)->setGrabber(nullptr);
-                    // FIXME send ungrab event only once
-                    grabber->touchUngrabEvent();
+            if (auto pointerEvent = queryPointerEventInstance(device)) {
+                for (int i = 0; i < pointerEvent->pointCount(); ++i) {
+                    if (pointerEvent->point(i)->grabber() == grabber) {
+                        pointerEvent->point(i)->setGrabber(nullptr);
+                        // FIXME send ungrab event only once
+                        grabber->touchUngrabEvent();
+                    }
                 }
             }
         }
@@ -1226,7 +1227,7 @@ void QQuickWindowPrivate::cleanup(QSGNode *n)
     \note All classes with QSG prefix should be used solely on the scene graph's
     rendering thread. See \l {Scene Graph and Rendering} for more information.
 
-    \section2 Context and surface formats
+    \section2 Context and Surface Formats
 
     While it is possible to specify a QSurfaceFormat for every QQuickWindow by
     calling the member function setFormat(), windows may also be created from
@@ -1291,6 +1292,8 @@ QQuickWindow::~QQuickWindow()
     delete d->dragGrabber; d->dragGrabber = 0;
 #endif
     delete d->contentItem; d->contentItem = 0;
+    qDeleteAll(d->pointerEventInstances);
+    d->pointerEventInstances.clear();
 
     d->renderJobMutex.lock();
     qDeleteAll(d->beforeSynchronizingJobs);
@@ -1492,15 +1495,15 @@ QQuickItem *QQuickWindow::mouseGrabberItem() const
     Q_D(const QQuickWindow);
 
     if (d->touchMouseId != -1 && d->touchMouseDevice) {
-        QQuickPointerEvent *event = d->pointerEventInstance(d->touchMouseDevice);
-        auto point = event->pointById(d->touchMouseId);
-        Q_ASSERT(point);
-        return point->grabber();
+        if (QQuickPointerEvent *event = d->queryPointerEventInstance(d->touchMouseDevice)) {
+            auto point = event->pointById(d->touchMouseId);
+            return point ? point->grabber() : nullptr;
+        }
+    } else if (QQuickPointerEvent *event = d->queryPointerEventInstance(QQuickPointerDevice::genericMouseDevice())) {
+        Q_ASSERT(event->pointCount());
+        return event->point(0)->grabber();
     }
-
-    QQuickPointerEvent *event = d->pointerEventInstance(QQuickPointerDevice::genericMouseDevice());
-    Q_ASSERT(event->pointCount());
-    return event->point(0)->grabber();
+    return nullptr;
 }
 
 
@@ -2112,15 +2115,21 @@ void QQuickWindowPrivate::flushFrameSynchronousEvents()
     }
 }
 
-QQuickPointerEvent *QQuickWindowPrivate::pointerEventInstance(QQuickPointerDevice *device) const
+QQuickPointerEvent *QQuickWindowPrivate::queryPointerEventInstance(QQuickPointerDevice *device) const
 {
     // the list of devices should be very small so a linear search should be ok
     for (QQuickPointerEvent *e: pointerEventInstances) {
         if (e->device() == device)
             return e;
     }
+    return nullptr;
+}
 
-    QQuickPointerEvent *ev = nullptr;
+QQuickPointerEvent *QQuickWindowPrivate::pointerEventInstance(QQuickPointerDevice *device) const
+{
+    QQuickPointerEvent *ev = queryPointerEventInstance(device);
+    if (ev)
+        return ev;
     QQuickWindow *q = const_cast<QQuickWindow*>(q_func());
     switch (device->type()) {
     case QQuickPointerDevice::Mouse:
@@ -3428,7 +3437,7 @@ void QQuickWindow::setRenderTarget(QOpenGLFramebufferObject *fbo)
 {
     Q_D(QQuickWindow);
     if (d->context && QThread::currentThread() != d->context->thread()) {
-        qWarning("QQuickWindow::setRenderThread: Cannot set render target from outside the rendering thread");
+        qWarning("QQuickWindow::setRenderTarget: Cannot set render target from outside the rendering thread");
         return;
     }
 
@@ -4085,6 +4094,8 @@ void QQuickWindow::resetOpenGLState()
 
     The flags which you read from this property might differ from the ones
     that you set if the requested flags could not be fulfilled.
+
+    \sa Qt::WindowFlags
  */
 
 /*!

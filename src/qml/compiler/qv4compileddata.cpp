@@ -46,6 +46,7 @@
 #include <private/qv4objectproto_p.h>
 #include <private/qv4lookup_p.h>
 #include <private/qv4regexpobject_p.h>
+#include <private/qv4regexp_p.h>
 #include <private/qqmlpropertycache_p.h>
 #include <private/qqmltypeloader_p.h>
 #include <private/qqmlengine_p.h>
@@ -57,6 +58,7 @@
 #include <QScopedValueRollback>
 #include <QStandardPaths>
 #include <QDir>
+#include <private/qv4identifiertable_p.h>
 #endif
 #include <private/qqmlirbuilder_p.h>
 #include <QCoreApplication>
@@ -96,6 +98,7 @@ static QString cacheFilePath(const QUrl &url)
 CompilationUnit::CompilationUnit()
     : data(0)
     , engine(0)
+    , qmlEngine(0)
     , runtimeLookups(0)
     , runtimeRegularExpressions(0)
     , runtimeClasses(0)
@@ -127,21 +130,23 @@ QV4::Function *CompilationUnit::linkToEngine(ExecutionEngine *engine)
     // memset the strings to 0 in case a GC run happens while we're within the loop below
     memset(runtimeStrings, 0, data->stringTableSize * sizeof(QV4::Heap::String*));
     for (uint i = 0; i < data->stringTableSize; ++i)
-        runtimeStrings[i] = engine->newIdentifier(data->stringAt(i));
+        runtimeStrings[i] = engine->newString(data->stringAt(i));
 
     runtimeRegularExpressions = new QV4::Value[data->regexpTableSize];
     // memset the regexps to 0 in case a GC run happens while we're within the loop below
     memset(runtimeRegularExpressions, 0, data->regexpTableSize * sizeof(QV4::Value));
     for (uint i = 0; i < data->regexpTableSize; ++i) {
         const CompiledData::RegExp *re = data->regexpAt(i);
-        int flags = 0;
+        bool global = false;
+        bool multiline = false;
+        bool ignoreCase = false;
         if (re->flags & CompiledData::RegExp::RegExp_Global)
-            flags |= IR::RegExp::RegExp_Global;
+            global = true;
         if (re->flags & CompiledData::RegExp::RegExp_IgnoreCase)
-            flags |= IR::RegExp::RegExp_IgnoreCase;
+            ignoreCase = true;
         if (re->flags & CompiledData::RegExp::RegExp_Multiline)
-            flags |= IR::RegExp::RegExp_Multiline;
-        runtimeRegularExpressions[i] = engine->newRegExpObject(data->stringAt(re->stringIndex), flags);
+            multiline = true;
+        runtimeRegularExpressions[i] = QV4::RegExp::create(engine, data->stringAt(re->stringIndex), ignoreCase, multiline, global);
     }
 
     if (data->lookupTableSize) {
@@ -180,7 +185,7 @@ QV4::Function *CompilationUnit::linkToEngine(ExecutionEngine *engine)
             const CompiledData::JSClassMember *member = data->jsClassAt(i, &memberCount);
             QV4::InternalClass *klass = engine->internalClasses[QV4::ExecutionEngine::Class_Object];
             for (int j = 0; j < memberCount; ++j, ++member)
-                klass = klass->addMember(runtimeStrings[member->nameOffset]->identifier, member->isAccessor ? QV4::Attr_Accessor : QV4::Attr_Data);
+                klass = klass->addMember(engine->identifierTable->identifier(runtimeStrings[member->nameOffset]), member->isAccessor ? QV4::Attr_Accessor : QV4::Attr_Data);
 
             runtimeClasses[i] = klass;
         }
@@ -207,12 +212,13 @@ QV4::Function *CompilationUnit::linkToEngine(ExecutionEngine *engine)
 void CompilationUnit::unlink()
 {
     if (engine)
-        engine->compilationUnits.erase(engine->compilationUnits.find(this));
+        nextCompilationUnit.remove();
 
     if (isRegisteredWithEngine) {
-        Q_ASSERT(data && quint32(propertyCaches.count()) > data->indexOfRootObject && propertyCaches.at(data->indexOfRootObject));
-        QQmlEnginePrivate *qmlEngine = QQmlEnginePrivate::get(propertyCaches.at(data->indexOfRootObject)->engine);
-        qmlEngine->unregisterInternalCompositeType(this);
+        Q_ASSERT(data && propertyCaches.count() > 0 && propertyCaches.at(/*root object*/0));
+        if (qmlEngine)
+            qmlEngine->unregisterInternalCompositeType(this);
+        QQmlMetaType::unregisterInternalCompositeType(this);
         isRegisteredWithEngine = false;
     }
 
@@ -228,6 +234,7 @@ void CompilationUnit::unlink()
     resolvedTypes.clear();
 
     engine = 0;
+    qmlEngine = 0;
     free(runtimeStrings);
     runtimeStrings = 0;
     delete [] runtimeLookups;
@@ -257,9 +264,6 @@ void CompilationUnit::markObjects(QV4::ExecutionEngine *e)
 
 void CompilationUnit::destroy()
 {
-    QQmlEngine *qmlEngine = 0;
-    if (engine && engine->v8Engine)
-        qmlEngine = engine->v8Engine->engine();
     if (qmlEngine)
         QQmlEnginePrivate::deleteInEngineThread(qmlEngine, this);
     else
@@ -282,21 +286,24 @@ IdentifierHash<int> CompilationUnit::namedObjectsPerComponent(int componentObjec
     return *it;
 }
 
-void CompilationUnit::finalize(QQmlEnginePrivate *engine)
+void CompilationUnit::finalizeCompositeType(QQmlEnginePrivate *qmlEngine)
 {
+    this->qmlEngine = qmlEngine;
+
     // Add to type registry of composites
-    if (propertyCaches.needsVMEMetaObject(data->indexOfRootObject))
-        engine->registerInternalCompositeType(this);
-    else {
-        const QV4::CompiledData::Object *obj = objectAt(data->indexOfRootObject);
+    if (propertyCaches.needsVMEMetaObject(/*root object*/0)) {
+        QQmlMetaType::registerInternalCompositeType(this);
+        qmlEngine->registerInternalCompositeType(this);
+    } else {
+        const QV4::CompiledData::Object *obj = objectAt(/*root object*/0);
         auto *typeRef = resolvedTypes.value(obj->inheritedTypeNameIndex);
         Q_ASSERT(typeRef);
         if (typeRef->compilationUnit) {
             metaTypeId = typeRef->compilationUnit->metaTypeId;
             listMetaTypeId = typeRef->compilationUnit->listMetaTypeId;
         } else {
-            metaTypeId = typeRef->type->typeId();
-            listMetaTypeId = typeRef->type->qListTypeId();
+            metaTypeId = typeRef->type.typeId();
+            listMetaTypeId = typeRef->type.qListTypeId();
         }
     }
 
@@ -308,8 +315,8 @@ void CompilationUnit::finalize(QQmlEnginePrivate *engine)
         const QV4::CompiledData::Object *obj = data->objectAt(i);
         bindingCount += obj->nBindings;
         if (auto *typeRef = resolvedTypes.value(obj->inheritedTypeNameIndex)) {
-            if (QQmlType *qmlType = typeRef->type) {
-                if (qmlType->parserStatusCast() != -1)
+            if (typeRef->type.isValid()) {
+                if (typeRef->type.parserStatusCast() != -1)
                     ++parserStatusCount;
             }
             ++objectCount;
@@ -673,7 +680,7 @@ Returns the property cache, if one alread exists.  The cache is not referenced.
 */
 QQmlPropertyCache *ResolvedTypeReference::propertyCache() const
 {
-    if (type)
+    if (type.isValid())
         return typePropertyCache;
     else
         return compilationUnit->rootPropertyCache();
@@ -686,8 +693,8 @@ QQmlPropertyCache *ResolvedTypeReference::createPropertyCache(QQmlEngine *engine
 {
     if (typePropertyCache) {
         return typePropertyCache;
-    } else if (type) {
-        typePropertyCache = QQmlEnginePrivate::get(engine)->cache(type->metaObject());
+    } else if (type.isValid()) {
+        typePropertyCache = QQmlEnginePrivate::get(engine)->cache(type.metaObject());
         return typePropertyCache;
     } else {
         return compilationUnit->rootPropertyCache();
@@ -696,7 +703,7 @@ QQmlPropertyCache *ResolvedTypeReference::createPropertyCache(QQmlEngine *engine
 
 bool ResolvedTypeReference::addToHash(QCryptographicHash *hash, QQmlEngine *engine)
 {
-    if (type) {
+    if (type.isValid()) {
         bool ok = false;
         hash->addData(createPropertyCache(engine)->checksum(&ok));
         return ok;
@@ -720,14 +727,12 @@ void ResolvedTypeReference::doDynamicTypeCheck()
     const QMetaObject *mo = 0;
     if (typePropertyCache)
         mo = typePropertyCache->firstCppMetaObject();
-    else if (type)
-        mo = type->metaObject();
+    else if (type.isValid())
+        mo = type.metaObject();
     else if (compilationUnit)
         mo = compilationUnit->rootPropertyCache()->firstCppMetaObject();
     isFullyDynamicType = qtTypeInherits<QQmlPropertyMap>(mo);
 }
-
-#if defined(QT_BUILD_INTERNAL)
 
 static QByteArray ownLibraryChecksum()
 {
@@ -736,7 +741,10 @@ static QByteArray ownLibraryChecksum()
     if (checksumInitialized)
         return libraryChecksum;
     checksumInitialized = true;
-#if !defined(QT_NO_DYNAMIC_CAST) && QT_CONFIG(dlopen)
+#if defined(QT_BUILD_INTERNAL) && !defined(QT_NO_DYNAMIC_CAST) && QT_CONFIG(dlopen)
+    // This is a bit of a hack to make development easier. When hacking on the code generator
+    // the cache files may end up being re-used. To avoid that we also add the checksum of
+    // the QtQml library.
     Dl_info libInfo;
     if (dladdr(reinterpret_cast<const void *>(&ownLibraryChecksum), &libInfo) != 0) {
         QFile library(QFile::decodeName(libInfo.dli_fname));
@@ -746,13 +754,13 @@ static QByteArray ownLibraryChecksum()
             libraryChecksum = hash.result();
         }
     }
+#elif defined(QML_COMPILE_HASH)
+    libraryChecksum = QByteArray(QT_STRINGIFY(QML_COMPILE_HASH));
 #else
     // Not implemented.
 #endif
     return libraryChecksum;
 }
-
-#endif
 
 bool ResolvedTypeReferenceMap::addToHash(QCryptographicHash *hash, QQmlEngine *engine) const
 {
@@ -761,12 +769,7 @@ bool ResolvedTypeReferenceMap::addToHash(QCryptographicHash *hash, QQmlEngine *e
             return false;
     }
 
-    // This is a bit of a hack to make development easier. When hacking on the code generator
-    // the cache files may end up being re-used. To avoid that we also add the checksum of
-    // the QtQml library.
-#if defined(QT_BUILD_INTERNAL)
     hash->addData(ownLibraryChecksum());
-#endif
 
     return true;
 }

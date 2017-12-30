@@ -406,6 +406,8 @@ QV4::CompiledData::Unit QV4::Compiler::JSUnitGenerator::generateHeader(QV4::Comp
     *jsClassDataOffset = nextOffset;
     nextOffset += jsClassData.size();
 
+    nextOffset = (nextOffset + 7) & ~quint32(0x7);
+
     for (int i = 0; i < irModule->functions.size(); ++i) {
         QV4::IR::Function *f = irModule->functions.at(i);
         functionOffsets[i] = nextOffset;
@@ -430,7 +432,6 @@ QV4::CompiledData::Unit QV4::Compiler::JSUnitGenerator::generateHeader(QV4::Comp
     unit.offsetToImports = 0;
     unit.nObjects = 0;
     unit.offsetToObjects = 0;
-    unit.indexOfRootObject = 0;
 
     unit.unitSize = nextOffset;
 

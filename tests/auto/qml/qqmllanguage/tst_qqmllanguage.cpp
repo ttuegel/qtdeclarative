@@ -247,6 +247,8 @@ private slots:
     void propertyCacheInSync();
 
     void rootObjectInCreationNotForSubObjects();
+    void lazyDeferredSubObject();
+    void deferredProperties();
 
     void noChildEvents();
 
@@ -2135,7 +2137,7 @@ void tst_qqmllanguage::scriptStringWithoutSourceCode()
         qmlUnit->flags &= ~QV4::CompiledData::Unit::StaticData;
         td->compilationUnit()->data = qmlUnit;
 
-        const QV4::CompiledData::Object *rootObject = qmlUnit->objectAt(qmlUnit->indexOfRootObject);
+        const QV4::CompiledData::Object *rootObject = qmlUnit->objectAt(/*root object*/0);
         QCOMPARE(qmlUnit->stringAt(rootObject->inheritedTypeNameIndex), QString("MyTypeObject"));
         quint32 i;
         for (i = 0; i < rootObject->nBindings; ++i) {
@@ -4240,6 +4242,68 @@ void tst_qqmllanguage::rootObjectInCreationNotForSubObjects()
     // This should never have been set in the first place as there is no
     // QQmlComponent to set it back to false.
     QVERIFY(!ddata->rootObjectInCreation);
+}
+
+// QTBUG-63036
+void tst_qqmllanguage::lazyDeferredSubObject()
+{
+    QQmlComponent component(&engine, testFile("lazyDeferredSubObject.qml"));
+    VERIFY_ERRORS(0);
+    QScopedPointer<QObject> object(component.create());
+    QVERIFY(!object.isNull());
+
+    QObject *subObject = qvariant_cast<QObject *>(object->property("subObject"));
+    QVERIFY(subObject);
+
+    QCOMPARE(object->objectName(), QStringLiteral("custom"));
+    QCOMPARE(subObject->objectName(), QStringLiteral("custom"));
+}
+
+// QTBUG-63200
+void tst_qqmllanguage::deferredProperties()
+{
+    QQmlComponent component(&engine, testFile("deferredProperties.qml"));
+    VERIFY_ERRORS(0);
+    QScopedPointer<QObject> object(component.create());
+    QVERIFY(!object.isNull());
+
+    QObject *innerObj = object->findChild<QObject *>(QStringLiteral("innerobj"));
+    QVERIFY(!innerObj);
+
+    QObject *outerObj = object->findChild<QObject *>(QStringLiteral("outerobj"));
+    QVERIFY(!outerObj);
+
+    QObject *groupProperty = object->property("groupProperty").value<QObject *>();
+    QVERIFY(!groupProperty);
+
+    QQmlListProperty<QObject> listProperty = object->property("listProperty").value<QQmlListProperty<QObject>>();
+    QCOMPARE(listProperty.count(&listProperty), 0);
+
+    qmlExecuteDeferred(object.data());
+
+    innerObj = object->findChild<QObject *>(QStringLiteral("innerobj")); // MyDeferredListProperty.qml
+    QVERIFY(innerObj);
+    QCOMPARE(innerObj->property("wasCompleted"), QVariant(true));
+
+    outerObj = object->findChild<QObject *>(QStringLiteral("outerobj")); // deferredListProperty.qml
+    QVERIFY(outerObj);
+    QCOMPARE(outerObj->property("wasCompleted"), QVariant(true));
+
+    groupProperty = object->property("groupProperty").value<QObject *>();
+    QCOMPARE(groupProperty, outerObj);
+
+    listProperty = object->property("listProperty").value<QQmlListProperty<QObject>>();
+    QCOMPARE(listProperty.count(&listProperty), 4);
+
+    QCOMPARE(listProperty.at(&listProperty, 0)->objectName(), QStringLiteral("innerlist1")); // MyDeferredListProperty.qml
+    QCOMPARE(listProperty.at(&listProperty, 0)->property("wasCompleted"), QVariant(true));
+    QCOMPARE(listProperty.at(&listProperty, 1)->objectName(), QStringLiteral("innerlist2")); // MyDeferredListProperty.qml
+    QCOMPARE(listProperty.at(&listProperty, 1)->property("wasCompleted"), QVariant(true));
+
+    QCOMPARE(listProperty.at(&listProperty, 2)->objectName(), QStringLiteral("outerlist1")); // deferredListProperty.qml
+    QCOMPARE(listProperty.at(&listProperty, 2)->property("wasCompleted"), QVariant(true));
+    QCOMPARE(listProperty.at(&listProperty, 3)->objectName(), QStringLiteral("outerlist2")); // deferredListProperty.qml
+    QCOMPARE(listProperty.at(&listProperty, 3)->property("wasCompleted"), QVariant(true));
 }
 
 void tst_qqmllanguage::noChildEvents()

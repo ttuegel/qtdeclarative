@@ -201,6 +201,7 @@ QQuickWidgetPrivate::QQuickWidgetPrivate()
     , fakeHidden(false)
     , requestedSamples(0)
     , useSoftwareRenderer(false)
+    , forceFullUpdate(false)
 {
 }
 
@@ -306,6 +307,10 @@ void QQuickWidgetPrivate::render(bool needsSync)
         auto softwareRenderer = static_cast<QSGSoftwareRenderer*>(cd->renderer);
         if (softwareRenderer && !softwareImage.isNull()) {
             softwareRenderer->setCurrentPaintDevice(&softwareImage);
+            if (forceFullUpdate) {
+                softwareRenderer->markDirty();
+                forceFullUpdate = false;
+            }
             renderControl->render();
 
             updateRegion += softwareRenderer->flushRegion();
@@ -423,7 +428,7 @@ QImage QQuickWidgetPrivate::grabFramebuffer()
     entire purpose of QQuickWidget is to render Quick scenes without a separate native
     window, hence making it a native widget should always be avoided.
 
-    \section1 Scene graph and context persistency
+    \section1 Scene Graph and Context Persistency
 
     QQuickWidget honors QQuickWindow::isPersistentSceneGraph(), meaning that
     applications can decide - by calling
@@ -913,9 +918,10 @@ void QQuickWidget::createFramebufferObject()
     d->offscreenWindow->setGeometry(globalPos.x(), globalPos.y(), width(), height());
 
     if (d->useSoftwareRenderer) {
-        const QSize imageSize = size() * devicePixelRatio();
+        const QSize imageSize = size() * devicePixelRatioF();
         d->softwareImage = QImage(imageSize, QImage::Format_ARGB32_Premultiplied);
-        d->softwareImage.setDevicePixelRatio(devicePixelRatio());
+        d->softwareImage.setDevicePixelRatio(devicePixelRatioF());
+        d->forceFullUpdate = true;
         return;
     }
 
@@ -960,7 +966,7 @@ void QQuickWidget::createFramebufferObject()
         format.setInternalTextureFormat(GL_SRGB8_ALPHA8_EXT);
 #endif
 
-    const QSize fboSize = size() * devicePixelRatio();
+    const QSize fboSize = size() * devicePixelRatioF();
 
     // Could be a simple hide - show, in which case the previous fbo is just fine.
     if (!d->fbo || d->fbo->size() != fboSize) {
@@ -1181,7 +1187,7 @@ void QQuickWidget::resizeEvent(QResizeEvent *e)
     // Software Renderer
     if (d->useSoftwareRenderer) {
         needsSync = true;
-        if (d->softwareImage.size() != size() * devicePixelRatio()) {
+        if (d->softwareImage.size() != size() * devicePixelRatioF()) {
             createFramebufferObject();
         }
     } else {
@@ -1191,7 +1197,7 @@ void QQuickWidget::resizeEvent(QResizeEvent *e)
             // during hide - resize - show sequences and also during application exit.
             if (!d->fbo && !d->offscreenWindow->openglContext())
                 return;
-            if (!d->fbo || d->fbo->size() != size() * devicePixelRatio()) {
+            if (!d->fbo || d->fbo->size() != size() * devicePixelRatioF()) {
                 needsSync = true;
                 createFramebufferObject();
             }
@@ -1391,15 +1397,18 @@ bool QQuickWidget::event(QEvent *e)
     Q_D(QQuickWidget);
 
     switch (e->type()) {
-    case QEvent::InputMethod:
-    case QEvent::InputMethodQuery:
 
+    case QEvent::Leave:
     case QEvent::TouchBegin:
     case QEvent::TouchEnd:
     case QEvent::TouchUpdate:
     case QEvent::TouchCancel:
         // Touch events only have local and global positions, no need to map.
         return QCoreApplication::sendEvent(d->offscreenWindow, e);
+
+    case QEvent::InputMethod:
+    case QEvent::InputMethodQuery:
+        return QCoreApplication::sendEvent(d->offscreenWindow->focusObject(), e);
 
     case QEvent::WindowChangeInternal:
         d->handleWindowChange();
@@ -1443,6 +1452,14 @@ bool QQuickWidget::event(QEvent *e)
     case QEvent::ShortcutOverride:
         return QCoreApplication::sendEvent(d->offscreenWindow, e);
 
+    case QEvent::Enter: {
+        QEnterEvent *enterEvent = static_cast<QEnterEvent *>(e);
+        QEnterEvent mappedEvent(enterEvent->localPos(), enterEvent->windowPos(),
+                                enterEvent->screenPos());
+        const bool ret = QCoreApplication::sendEvent(d->offscreenWindow, &mappedEvent);
+        e->setAccepted(mappedEvent.isAccepted());
+        return ret;
+    }
     default:
         break;
     }
@@ -1607,10 +1624,12 @@ void QQuickWidget::paintEvent(QPaintEvent *event)
             //Paint everything
             painter.drawImage(rect(), d->softwareImage);
         } else {
+            QTransform transform;
+            transform.scale(devicePixelRatioF(), devicePixelRatioF());
             //Paint only the updated areas
             const auto rects = d->updateRegion.rects();
             for (auto targetRect : rects) {
-                auto sourceRect = QRect(targetRect.topLeft() * devicePixelRatio(), targetRect.size() * devicePixelRatio());
+                auto sourceRect = transform.mapRect(QRectF(targetRect));
                 painter.drawImage(targetRect, d->softwareImage, sourceRect);
             }
             d->updateRegion = QRegion();

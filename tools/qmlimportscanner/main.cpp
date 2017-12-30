@@ -425,7 +425,7 @@ QVariantList findQmlImportsInDirectory(const QString &qmlDir)
         if (path.contains(QLatin1String("Debug-iphoneos")) || path.contains(QLatin1String("Release-iphoneos")) ||
             path.contains(QLatin1String("Debug-iphonesimulator")) || path.contains(QLatin1String("Release-iphonesimulator"))
 #ifdef Q_OS_WIN
-            || path.contains(QLatin1String("/release/")) || path.contains(QLatin1String("/debug/"))
+            || path.endsWith(QLatin1String("/release")) || path.endsWith(QLatin1String("/debug"))
 #endif
         ){
             continue;

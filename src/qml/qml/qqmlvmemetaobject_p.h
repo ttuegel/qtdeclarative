@@ -112,6 +112,8 @@ public:
             if (it->m_propertyIndex == propertyIndex)
                 return true;
         }
+        if (auto parentInterceptor = ((parent.isT1() && parent.flag()) ? static_cast<QQmlInterceptorMetaObject *>(parent.asT1()) : 0))
+            return parentInterceptor->intercepts(propertyIndex);
         return false;
     }
 
@@ -144,7 +146,7 @@ class QQmlVMEMetaObjectEndpoint;
 class Q_QML_PRIVATE_EXPORT QQmlVMEMetaObject : public QQmlInterceptorMetaObject
 {
 public:
-    QQmlVMEMetaObject(QObject *obj, QQmlPropertyCache *cache, QV4::CompiledData::CompilationUnit *qmlCompilationUnit, int qmlObjectId);
+    QQmlVMEMetaObject(QV4::ExecutionEngine *engine, QObject *obj, QQmlPropertyCache *cache, QV4::CompiledData::CompilationUnit *qmlCompilationUnit, int qmlObjectId);
     ~QQmlVMEMetaObject();
 
     bool aliasTarget(int index, QObject **target, int *coreIndex, int *valueTypeIndex) const;
@@ -164,6 +166,7 @@ protected:
     int metaCall(QObject *o, QMetaObject::Call _c, int _id, void **_a) Q_DECL_OVERRIDE;
 
 public:
+    QV4::ExecutionEngine *engine;
     QQmlGuardedContextData ctxt;
 
     inline int propOffset() const;

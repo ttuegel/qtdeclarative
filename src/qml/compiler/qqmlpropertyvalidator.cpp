@@ -58,7 +58,7 @@ QQmlPropertyValidator::QQmlPropertyValidator(QQmlEnginePrivate *enginePrivate, c
 
 QVector<QQmlCompileError> QQmlPropertyValidator::validate()
 {
-    return validateObject(qmlUnit->indexOfRootObject, /*instantiatingBinding*/0);
+    return validateObject(/*root object*/0, /*instantiatingBinding*/0);
 }
 
 typedef QVarLengthArray<const QV4::CompiledData::Binding *, 8> GroupPropertyVector;
@@ -94,20 +94,10 @@ QVector<QQmlCompileError> QQmlPropertyValidator::validateObject(int objectIndex,
     if (!propertyCache)
         return QVector<QQmlCompileError>();
 
-    QStringList deferredPropertyNames;
-    {
-        const QMetaObject *mo = propertyCache->firstCppMetaObject();
-        const int namesIndex = mo->indexOfClassInfo("DeferredPropertyNames");
-        if (namesIndex != -1) {
-            QMetaClassInfo classInfo = mo->classInfo(namesIndex);
-            deferredPropertyNames = QString::fromUtf8(classInfo.value()).split(QLatin1Char(','));
-        }
-    }
-
     QQmlCustomParser *customParser = 0;
     if (auto typeRef = resolvedTypes.value(obj->inheritedTypeNameIndex)) {
-        if (typeRef->type)
-            customParser = typeRef->type->customParser();
+        if (typeRef->type.isValid())
+            customParser = typeRef->type.customParser();
     }
 
     QList<const QV4::CompiledData::Binding*> customBindings;
@@ -178,8 +168,8 @@ QVector<QQmlCompileError> QQmlPropertyValidator::validateObject(int objectIndex,
             if (notInRevision) {
                 QString typeName = stringAt(obj->inheritedTypeNameIndex);
                 auto *objectType = resolvedTypes.value(obj->inheritedTypeNameIndex);
-                if (objectType && objectType->type) {
-                    return recordError(binding->location, tr("\"%1.%2\" is not available in %3 %4.%5.").arg(typeName).arg(name).arg(objectType->type->module()).arg(objectType->majorVersion).arg(objectType->minorVersion));
+                if (objectType && objectType->type.isValid()) {
+                    return recordError(binding->location, tr("\"%1.%2\" is not available in %3 %4.%5.").arg(typeName).arg(name).arg(objectType->type.module()).arg(objectType->majorVersion).arg(objectType->minorVersion));
                 } else {
                     return recordError(binding->location, tr("\"%1.%2\" is not available due to component versioning.").arg(typeName).arg(name));
                 }
@@ -197,7 +187,7 @@ QVector<QQmlCompileError> QQmlPropertyValidator::validateObject(int objectIndex,
             collectedBindingPropertyData[i] = pd;
 
         if (name.constData()->isUpper() && !binding->isAttachedProperty()) {
-            QQmlType *type = 0;
+            QQmlType type;
             QQmlImportNamespace *typeNamespace = 0;
             imports.resolveType(stringAt(binding->propertyNameIndex), &type, 0, 0, &typeNamespace);
             if (typeNamespace)
@@ -628,21 +618,19 @@ QQmlCompileError QQmlPropertyValidator::validateObjectBinding(QQmlPropertyData *
         bool isValueSource = false;
         bool isPropertyInterceptor = false;
 
-        QQmlType *qmlType = 0;
         const QV4::CompiledData::Object *targetObject = qmlUnit->objectAt(binding->value.objectIndex);
         if (auto *typeRef = resolvedTypes.value(targetObject->inheritedTypeNameIndex)) {
             QQmlPropertyCache *cache = typeRef->createPropertyCache(QQmlEnginePrivate::get(enginePrivate));
             const QMetaObject *mo = cache->firstCppMetaObject();
-            while (mo && !qmlType) {
+            QQmlType qmlType;
+            while (mo && !qmlType.isValid()) {
                 qmlType = QQmlMetaType::qmlType(mo);
                 mo = mo->superClass();
             }
-            Q_ASSERT(qmlType);
-        }
+            Q_ASSERT(qmlType.isValid());
 
-        if (qmlType) {
-            isValueSource = qmlType->propertyValueSourceCast() != -1;
-            isPropertyInterceptor = qmlType->propertyValueInterceptorCast() != -1;
+            isValueSource = qmlType.propertyValueSourceCast() != -1;
+            isPropertyInterceptor = qmlType.propertyValueInterceptorCast() != -1;
         }
 
         if (!isValueSource && !isPropertyInterceptor) {

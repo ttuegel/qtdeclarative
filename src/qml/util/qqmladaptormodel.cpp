@@ -447,12 +447,12 @@ public:
     {
     }
 
-    int count(const QQmlAdaptorModel &model) const
+    int count(const QQmlAdaptorModel &model) const override
     {
         return model.aim()->rowCount(model.rootIndex);
     }
 
-    void cleanup(QQmlAdaptorModel &model, QQmlDelegateModel *vdm) const
+    void cleanup(QQmlAdaptorModel &model, QQmlDelegateModel *vdm) const override
     {
         QAbstractItemModel * const aim = model.aim();
         if (aim && vdm) {
@@ -475,7 +475,7 @@ public:
         const_cast<VDMAbstractItemModelDataType *>(this)->release();
     }
 
-    QVariant value(const QQmlAdaptorModel &model, int index, const QString &role) const
+    QVariant value(const QQmlAdaptorModel &model, int index, const QString &role) const override
     {
         QHash<QByteArray, int>::const_iterator it = roleNames.find(role.toUtf8());
         if (it != roleNames.end()) {
@@ -487,26 +487,26 @@ public:
         }
     }
 
-    QVariant parentModelIndex(const QQmlAdaptorModel &model) const
+    QVariant parentModelIndex(const QQmlAdaptorModel &model) const override
     {
         return model
                 ? QVariant::fromValue(model.aim()->parent(model.rootIndex))
                 : QVariant();
     }
 
-    QVariant modelIndex(const QQmlAdaptorModel &model, int index) const
+    QVariant modelIndex(const QQmlAdaptorModel &model, int index) const override
     {
         return model
                 ? QVariant::fromValue(model.aim()->index(index, 0, model.rootIndex))
                 : QVariant();
     }
 
-    bool canFetchMore(const QQmlAdaptorModel &model) const
+    bool canFetchMore(const QQmlAdaptorModel &model) const override
     {
         return model && model.aim()->canFetchMore(model.rootIndex);
     }
 
-    void fetchMore(QQmlAdaptorModel &model) const
+    void fetchMore(QQmlAdaptorModel &model) const override
     {
         if (model)
             model.aim()->fetchMore(model.rootIndex);
@@ -515,16 +515,15 @@ public:
     QQmlDelegateModelItem *createItem(
             QQmlAdaptorModel &model,
             QQmlDelegateModelItemMetaType *metaType,
-            QQmlEngine *engine,
-            int index) const
+            int index) const Q_DECL_OVERRIDE
     {
         VDMAbstractItemModelDataType *dataType = const_cast<VDMAbstractItemModelDataType *>(this);
         if (!metaObject)
-            dataType->initializeMetaType(model, engine);
+            dataType->initializeMetaType(model);
         return new QQmlDMAbstractItemModelData(metaType, dataType, index);
     }
 
-    void initializeMetaType(QQmlAdaptorModel &model, QQmlEngine *engine)
+    void initializeMetaType(QQmlAdaptorModel &model)
     {
         QMetaObjectBuilder builder;
         setModelDataType<QQmlDMAbstractItemModelData>(&builder, this);
@@ -549,7 +548,7 @@ public:
 
         metaObject = builder.toMetaObject();
         *static_cast<QMetaObject *>(this) = *metaObject;
-        propertyCache = new QQmlPropertyCache(QV8Engine::getV4(engine), metaObject);
+        propertyCache = new QQmlPropertyCache(metaObject);
     }
 };
 
@@ -646,12 +645,12 @@ class VDMListDelegateDataType : public QQmlAdaptorModel::Accessors
 public:
     inline VDMListDelegateDataType() {}
 
-    int count(const QQmlAdaptorModel &model) const
+    int count(const QQmlAdaptorModel &model) const override
     {
         return model.list.count();
     }
 
-    QVariant value(const QQmlAdaptorModel &model, int index, const QString &role) const
+    QVariant value(const QQmlAdaptorModel &model, int index, const QString &role) const override
     {
         return role == QLatin1String("modelData")
                 ? model.list.at(index)
@@ -661,8 +660,7 @@ public:
     QQmlDelegateModelItem *createItem(
             QQmlAdaptorModel &model,
             QQmlDelegateModelItemMetaType *metaType,
-            QQmlEngine *,
-            int index) const
+            int index) const Q_DECL_OVERRIDE
     {
         return new QQmlDMListAccessorData(
                 metaType,
@@ -731,12 +729,12 @@ public:
         free(metaObject);
     }
 
-    int count(const QQmlAdaptorModel &model) const
+    int count(const QQmlAdaptorModel &model) const override
     {
         return model.list.count();
     }
 
-    QVariant value(const QQmlAdaptorModel &model, int index, const QString &role) const
+    QVariant value(const QQmlAdaptorModel &model, int index, const QString &role) const override
     {
         if (QObject *object = model.list.at(index).value<QObject *>())
             return object->property(role.toUtf8());
@@ -746,8 +744,7 @@ public:
     QQmlDelegateModelItem *createItem(
             QQmlAdaptorModel &model,
             QQmlDelegateModelItemMetaType *metaType,
-            QQmlEngine *,
-            int index) const
+            int index) const Q_DECL_OVERRIDE
     {
         VDMObjectDelegateDataType *dataType = const_cast<VDMObjectDelegateDataType *>(this);
         if (!metaObject)
@@ -764,7 +761,7 @@ public:
         metaObject = builder.toMetaObject();
     }
 
-    void cleanup(QQmlAdaptorModel &, QQmlDelegateModel *) const
+    void cleanup(QQmlAdaptorModel &, QQmlDelegateModel *) const override
     {
         const_cast<VDMObjectDelegateDataType *>(this)->release();
     }

@@ -62,20 +62,17 @@ using namespace QV4;
 DEFINE_OBJECT_VTABLE(QmlContextWrapper);
 DEFINE_MANAGED_VTABLE(QmlContext);
 
-void Heap::QmlContextWrapper::init(QQmlContextData *context, QObject *scopeObject, bool ownsContext)
+void Heap::QmlContextWrapper::init(QQmlContextData *context, QObject *scopeObject)
 {
     Object::init();
     readOnly = true;
-    this->ownsContext = ownsContext;
     isNullWrapper = false;
-    this->context = new QQmlGuardedContextData(context);
+    this->context = new QQmlContextDataRef(context);
     this->scopeObject.init(scopeObject);
 }
 
 void Heap::QmlContextWrapper::destroy()
 {
-    if (*context && ownsContext)
-        (*context)->destroy();
     delete context;
     scopeObject.destroy();
     Object::destroy();
@@ -142,7 +139,7 @@ ReturnedValue QmlContextWrapper::get(const Managed *m, String *name, bool *hasPr
             if (r.scriptIndex != -1) {
                 QV4::ScopedObject scripts(scope, context->importedScripts.valueRef());
                 return scripts->getIndexed(r.scriptIndex);
-            } else if (r.type) {
+            } else if (r.type.isValid()) {
                 return QmlTypeWrapper::create(v4, scopeObject, r.type);
             } else if (r.importNamespace) {
                 return QmlTypeWrapper::create(v4, scopeObject, context->imports, r.importNamespace);
@@ -321,7 +318,7 @@ Heap::QmlContext *QmlContext::createWorkerContext(ExecutionContext *parent, cons
     context->isInternal = true;
     context->isJSContext = true;
 
-    Scoped<QmlContextWrapper> qml(scope, scope.engine->memoryManager->allocObject<QmlContextWrapper>(context, (QObject*)0, true));
+    Scoped<QmlContextWrapper> qml(scope, scope.engine->memoryManager->allocObject<QmlContextWrapper>(context, (QObject*)0));
     qml->d()->isNullWrapper = true;
 
     qml->setReadOnly(false);

@@ -121,6 +121,7 @@ void debugFocusTree(QQuickItem *item, QQuickItem *scope = 0, int depth = 1)
     \li \l Rotation
     \li \l Scale
     \li \l Translate
+    \li \l Matrix4x4
     \endlist
 
     The Transform types let you create and control advanced transformations that can be configured
@@ -5794,7 +5795,7 @@ void QQuickItem::setVisible(bool v)
     are returned to \c true, unless they have explicitly been set to \c false.
 
     Setting this property to \c false automatically causes \l activeFocus to be
-    set to \c false, and this item will longer receive keyboard events.
+    set to \c false, and this item will no longer receive keyboard events.
 
     \sa visible
 */
